@@ -1,117 +1,107 @@
 """
 main.py
-Entry point for the LKG Literacy Lesson Identifier.
+Entry point. 
 """
 
 import sys
-# Note: In a real environment with a camera, you would import cv2 here to load images.
 from database import LessonDatabase
 from processor import PageProcessor
 from matcher import LessonMatcher
 
-def print_result(result):
-    print("-" * 40)
-    print(f"CONFIDENCE: {result['confidence']}")
-    if result['top_match']:
-        m = result['top_match']
-        print(f"LESSON ID : {m['lesson_id']} ({m['type']})")
-        print(f"SCORE     : {m['score']}")
-        print("REASONING :")
-        for r in m['reasons']:
-            print(f"  > {r}")
-    else:
-        print("No suitable lesson found.")
-    print("-" * 40)
+# --- MOCK DATA FOR TESTING WITHOUT IMAGES ---
+# This data comes directly from your PDF dump
+MOCK_PAGE_16_A_INTRO = """
+Oral Language Development
+Aa
+ant anchor alligator anthill
+Note to the teacher: A few words that are not so familiar to the children are labelled.
+"""
 
-def run_simulation():
-    """
-    Simulates the pipeline without needing physical images.
-    Useful for testing logic without a camera.
-    """
-    print("Running Simulation Mode...\n")
-    
-    # Init Pipeline
+MOCK_PAGE_18_A_WRITE = """
+Modelled Writing & Independent Writing
+Trace and Colour. Say and Write.
+A A A
+a a a
+Letter Art: Use crayons to trace the letter.
+Sing along: /a/ is the sound of Letter A
+"""
+
+MOCK_PAGE_8_STANDING = """
+Standing Lines
+Trace and practise.
+Rain Rain
+"""
+
+def run_test_cases():
+    print("=== RUNNING SIMULATION TEST CASES ===")
     db = LessonDatabase()
     matcher = LessonMatcher(db)
-    # Processor not strictly needed for simulation, but instantiated for completeness
-    # processor = PageProcessor() 
 
-    # --- Scenario 1: Alphabet 'B' Page ---
-    print("SCENARIO 1: User scans 'Letter B' tracing page")
-    
-    # Mock OCR output
-    ocr_text_1 = """
-    Name: _______  Date: ______
-    Trace and colour.
-    B B B B B
-    Ball  Bat  Balloon
-    b b b b b
-    """
-    # Mock Visuals (Grid detected for tracing boxes)
-    visuals_1 = {
-        "vertical_lines_detected": False,
-        "horizontal_lines_detected": False,
-        "grid_detected": True
-    }
-    
-    result_1 = matcher.match(ocr_text_1, visuals_1)
-    print_result(result_1)
+    # Test 1: Letter A Intro (Page 16)
+    print("\n--- Test 1: Page 16 (Letter A Intro) ---")
+    # Simulate visuals: No grid, no lines
+    vis = {"vertical_lines": False, "horizontal_lines": False, "grid_detected": False}
+    res = matcher.identify_lesson(MOCK_PAGE_16_A_INTRO, vis)
+    print_result(res)
 
-
-    # --- Scenario 2: Prewriting Vertical Lines ---
-    print("\nSCENARIO 2: User scans 'Standing Lines' worksheet")
+    # Test 2: Letter A Writing (Page 18)
+    print("\n--- Test 2: Page 18 (Letter A Writing) ---")
+    # Simulate visuals: Grid detected for writing boxes
+    vis = {"vertical_lines": False, "horizontal_lines": False, "grid_detected": True}
+    res = matcher.identify_lesson(MOCK_PAGE_18_A_WRITE, vis)
     
-    ocr_text_2 = """
-    Practice standing lines.
-    Start from the top.
-    Rain
-    """
-    # Mock Visuals (Dominant vertical lines)
-    visuals_2 = {
-        "vertical_lines_detected": True,
-        "horizontal_lines_detected": False,
-        "grid_detected": False
-    }
-    
-    result_2 = matcher.match(ocr_text_2, visuals_2)
-    print_result(result_2)
+    print_result(res)
 
-def run_real_image(image_path: str):
-    """
-    Runs the pipeline on a real image file.
-    """
+    # Test 3: Standing Lines (Page 8)
+    print("\n--- Test 3: Page 8 (Standing Lines) ---")
+    # Simulate visuals: Vertical lines detected
+    vis = {"vertical_lines": True, "horizontal_lines": False, "grid_detected": False}
+    res = matcher.identify_lesson(MOCK_PAGE_8_STANDING, vis)
+    print_result(res)
+
+def print_result(result):
+    if result['top_match']:
+        m = result['top_match']
+        print(f"✅ MATCH: {m['topic']} (ID: {m['lesson_id']})")
+        print(f"   Confidence: {result['confidence']} (Score: {m['score']})")
+        print("   Reasoning:")
+        for r in m['reasons']:
+            print(f"   - {r}")
+    else:
+        print("❌ NO MATCH FOUND")
+
+def run_live_image(image_path):
     import cv2
-    
-    print(f"Processing Image: {image_path}")
+    print(f"\n=== PROCESSING IMAGE: {image_path} ===")
     
     # 1. Setup
     db = LessonDatabase()
-    processor = PageProcessor() # Add tesseract_cmd arg here if needed
+    # Path to Tesseract - UPDATE THIS FOR YOUR SYSTEM
+    # Linux: '/usr/bin/tesseract'
+    # Windows: r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+    processor = PageProcessor() 
     matcher = LessonMatcher(db)
-    
+
     # 2. Load
-    image = cv2.imread(image_path)
-    if image is None:
-        print("Error: Could not load image.")
+    img = cv2.imread(image_path)
+    if img is None:
+        print("Error: Could not load image")
         return
 
-    # 3. Process (Perception)
-    print("Extracting text and features...")
-    raw_text = processor.extract_text(image)
-    visuals = processor.analyze_visual_features(image)
+    # 3. Process
+    print("Step 1: Extracting Text & Features...")
+    text = processor.extract_text(img)
+    visuals = processor.analyze_visual_features(img)
+    print(f"   > Visuals Detected: {visuals}")
     
-    # 4. Match (Logic)
-    print("Identifying lesson...")
-    result = matcher.match(raw_text, visuals)
-    
-    # 5. Output
+    # 4. Match
+    print("Step 2: Identifying Lesson...")
+    result = matcher.identify_lesson(text, visuals)
     print_result(result)
 
 if __name__ == "__main__":
-    # To run simulation: python main.py
-    # To run real image: python main.py /path/to/image.jpg
-    
+    # If file argument provided, run live mode. Else run simulation.
     if len(sys.argv) > 1:
-        run_real_image(sys.argv[1])
+        run_live_image(sys.argv[1])
     else:
-        run_simulation()
+        run_test_cases()
