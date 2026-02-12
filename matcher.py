@@ -1,8 +1,6 @@
 """
 matcher.py
-Logic Engine: Matches text/visuals to the LKG Literacy Database.
 """
-
 import re
 from collections import Counter
 from typing import Dict, Any, List
@@ -13,101 +11,78 @@ class LessonMatcher:
         self.db = db
 
     def _process_context(self, raw_text: str) -> Dict[str, Any]:
-        """
-        Cleans text and counts words.
-        """
-        # Normalize
         text_lower = raw_text.lower()
         
-        # Extract meaningful words
+        # Word Counts
         words = re.findall(r'\b[a-z]+\b', text_lower)
         clean_words = [w for w in words if not self.db.is_stop_word(w)]
         word_counts = Counter(clean_words)
         
-        # Extract isolated single letters (A, B, C)
-        # Tesseract often reads "A A A" as "A A A".
-        # We look for UPPERCASE letters in the raw text specifically.
+        # Char Counts (Only uppercase for headers/tracing)
         upper_chars = [c for c in raw_text if c.isupper() and c.isalpha()]
         char_counts = Counter(upper_chars)
 
         return {
             "word_counts": word_counts,
             "char_counts": char_counts,
-            "raw_text": text_lower
+            "raw_text": raw_text
         }
 
     def identify_lesson(self, raw_text: str, visual_features: Dict[str, Any]) -> Dict[str, Any]:
         context = self._process_context(raw_text)
         candidates = []
-        lessons = self.db.get_lessons()
+        
+        # Get EVERYTHING (Standing lines, Stories, Letter A, Letter B...)
+        all_lessons = self.db.get_all_lessons()
 
-        for lesson in lessons:
+        for lesson in all_lessons:
             score = 0
             reasons = []
 
-            # --- RULE 1: Visual Structure (Hard Rule for Strokes) ---
-            if lesson['type'] == 'strokes':
-                # Strong visual match required for lines
-                if "vertical_lines" in lesson['visual_cues'] and visual_features['vertical_lines']:
+            # --- 1. Visual Checks (Mainly for Lines) ---
+            if "visuals" in lesson:
+                if "vertical_lines" in lesson["visuals"] and visual_features["vertical_lines"]:
                     score += 50
                     reasons.append("Visual: Vertical lines detected")
-                elif "horizontal_lines" in lesson['visual_cues'] and visual_features['horizontal_lines']:
+                if "horizontal_lines" in lesson["visuals"] and visual_features["horizontal_lines"]:
                     score += 50
                     reasons.append("Visual: Horizontal lines detected")
-                
-                # Check for Title in text (e.g. "Standing Lines")
-                # We check raw strings for multi-word phrases
-                if lesson['topic'].lower() in context['raw_text']:
-                    score += 40
-                    reasons.append(f"Title match: '{lesson['topic']}' found")
 
-            # --- RULE 2: Alphabet Logic ---
-            elif 'alphabet' in lesson['type']:
+            # --- 2. Title/Name Checks ---
+            # Checks if "The Thirsty Crow" or "Standing Lines" is in text
+            if lesson["name"].lower() in context["raw_text"].lower():
+                score += 40
+                reasons.append(f"Title detected: '{lesson['name']}'")
+
+            # --- 3. Alphabet Specific Logic ---
+            if lesson['type'] == 'alphabet':
                 target_char = lesson['letter']
-                
-                # A. Letter Dominance
-                # Does 'A' appear frequently?
-                char_freq = context['char_counts'].get(target_char, 0)
+                # Check for "A A A" patterns
+                char_freq = context["char_counts"].get(target_char, 0)
                 if char_freq > 2:
-                    score += (char_freq * 2)
-                    reasons.append(f"Letter dominance: '{target_char}' appeared {char_freq} times")
-
-                # B. Page Type Differentiation (The tricky part)
-                # 1. Intro Page ("Oral Language Development", Big Pictures)
-                if lesson['type'] == 'alphabet_oral':
-                    if "oral" in context['word_counts'] or "language" in context['word_counts']:
-                        score += 30
-                        reasons.append("Context: 'Oral Language' section detected")
+                    score += (char_freq * 3)
+                    reasons.append(f"Letter '{target_char}' frequency: {char_freq}")
                 
-                # 2. Activity Page ("Phonological", "Tick", "Circle")
-                elif lesson['type'] == 'alphabet_activity':
-                    if "phonological" in context['word_counts'] or "sight" in context['word_counts']:
-                        score += 30
-                        reasons.append("Context: 'Phonological/Sight Words' detected")
+                # Check if grid exists (Writing pages)
+                if score > 10 and visual_features['grid_detected']:
+                    score += 10
+                    reasons.append("Visual: Grid detected")
 
-                # 3. Writing Page ("Modelled Writing", "Trace", Grids)
-                elif lesson['type'] == 'alphabet_writing':
-                    if "modelled" in context['word_counts'] or "writing" in context['word_counts']:
-                        score += 30
-                        reasons.append("Context: 'Modelled Writing' detected")
-                    if visual_features['grid_detected']:
-                        score += 20
-                        reasons.append("Visual: Writing grid detected")
-
-            # --- RULE 3: Keyword Overlap (Universal) ---
-            # Used for Stories and to confirm Letters (e.g., "Ant" confirms "A")
+            # --- 4. Keyword Overlap (Universal) ---
             matches = 0
-            for kw in lesson['keywords']:
-                if context['word_counts'][kw] > 0:
+            for kw in lesson["keywords"]:
+                if context["word_counts"][kw] > 0:
                     matches += 1
-                    reasons.append(f"Keyword match: '{kw}'")
+                    reasons.append(f"Keyword: '{kw}'")
             
-            score += (matches * 10)
+            if matches > 0:
+                score += (matches * 15)
 
+            # --- 5. Add to Candidates ---
             if score > 0:
                 candidates.append({
-                    "lesson_id": lesson['id'],
-                    "topic": lesson['topic'],
+                    "lesson_id": lesson["id"],
+                    "name": lesson["name"],
                     "score": score,
                     "reasons": reasons
                 })
@@ -117,14 +92,12 @@ class LessonMatcher:
 
         result = {
             "top_match": candidates[0] if candidates else None,
-            "confidence": "LOW",
-            "alternatives": candidates[1:3] if len(candidates) > 1 else []
+            "confidence": "LOW"
         }
 
-        # Determine Confidence Level
         if result['top_match']:
             s = result['top_match']['score']
             if s >= 40: result['confidence'] = "HIGH"
             elif s >= 20: result['confidence'] = "MEDIUM"
-        
+
         return result

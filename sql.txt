@@ -1,0 +1,30 @@
+CREATE DATABASE IF NOT EXISTS lkg_literacy;
+USE lkg_literacy;
+
+-- 1. Main Table: Stores the core lesson info
+CREATE TABLE IF NOT EXISTS lessons (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    lesson_code VARCHAR(50) UNIQUE NOT NULL,  -- e.g., 'LKG_LETTER_A'
+    name VARCHAR(100) NOT NULL,               -- e.g., 'Letter A'
+    type ENUM('topic', 'story', 'alphabet') NOT NULL,
+    target_letter CHAR(1) NULL                -- e.g., 'A' (only for alphabet types)
+);
+
+-- 2. Keywords Table: One-to-Many relationship with lessons
+CREATE TABLE IF NOT EXISTS lesson_keywords (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    lesson_id INT,
+    keyword VARCHAR(50) NOT NULL,
+    FOREIGN KEY (lesson_id) REFERENCES lessons(id) ON DELETE CASCADE
+);
+
+-- 3. Visual Cues Table: Stores visual triggers like 'vertical_lines'
+CREATE TABLE IF NOT EXISTS lesson_visuals (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    lesson_id INT,
+    visual_cue VARCHAR(50) NOT NULL,
+    FOREIGN KEY (lesson_id) REFERENCES lessons(id) ON DELETE CASCADE
+);
+
+-- INDEXING for performance
+CREATE INDEX idx_keyword ON lesson_keywords(keyword);
