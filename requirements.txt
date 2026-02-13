@@ -3,3 +3,6 @@ numpy
 pytesseract
 easyocr
 mysql-connector-python  
+fastapi
+uvicorn
+python-multipart
